@@ -248,3 +248,11 @@ $RECYCLE.BIN/
 *.lnk
 
 # End of https://www.toptal.com/developers/gitignore/api/python,macos,windows,linux
+
+
+data/*
+!data/README.md
+*.dat
+.venv/
+__pycache__/
+mlruns/
