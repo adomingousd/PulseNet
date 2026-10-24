@@ -38,12 +38,12 @@ def fit(x_tr: np.ndarray, y_tr: np.ndarray, x_va: np.ndarray, y_va: np.ndarray, 
     return model, history
 
 
-def report_row(model: TCN, x: np.ndarray, y: np.ndarray, **ids) -> dict:
+def report_row(net: TCN, x: np.ndarray, y: np.ndarray, /, **ids) -> dict:
     """Forecast report plus the ratio to persistence on the same windows (<1 beats it)."""
-    return add_persistence(forecast_report(predict(model, x), y), x, y, **ids)
+    return add_persistence(forecast_report(predict(net, x), y), x, y, **ids)
 
 
-def add_persistence(report: dict, x: np.ndarray, y: np.ndarray, **ids) -> dict:
+def add_persistence(report: dict, x: np.ndarray, y: np.ndarray, /, **ids) -> dict:
     p = forecast_report(persistence_forecast(x, y.shape[2]), y)["mse"]
     return {**ids, **report, "persistence_mse": p, "ratio_vs_persistence": report["mse"] / p}
 
