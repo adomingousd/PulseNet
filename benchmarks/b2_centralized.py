@@ -30,6 +30,7 @@ def main() -> None:
     p.add_argument("--batch-size", type=int, default=64)
     p.add_argument("--seeds", type=int, nargs="+", default=[0])
     p.add_argument("--residual-to-last", action="store_true", help="predict the change from the last value")
+    p.add_argument("--hidden", type=int, default=32, help="TCN channels per layer (spec: 32)") # optionally try wider model
     p.add_argument("--threads", type=int, default=0, help="torch CPU threads (0 = PyTorch default)")
     p.add_argument("--results", type=Path, default=Path("results"))
     p.add_argument("--mlflow", action="store_true", help="also log to MLflow")
@@ -41,7 +42,7 @@ def main() -> None:
     va = load_split(args.processed, args.subjects, VAL)
     x_tr, y_tr = pooled(tr)
     x_va, y_va = pooled(va)
-    cfg = TCNConfig(residual_to_last=args.residual_to_last)
+    cfg = TCNConfig(hidden=args.hidden, residual_to_last=args.residual_to_last)
     print(f"B2 centralized: {len(x_tr)} train / {len(x_va)} val windows from {len(args.subjects)} subjects")
 
     run_dir = new_run_dir(args.results, "b2_centralized")

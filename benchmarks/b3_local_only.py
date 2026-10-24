@@ -31,6 +31,7 @@ def main() -> None:
     p.add_argument("--batch-size", type=int, default=64)
     p.add_argument("--seeds", type=int, nargs="+", default=[0])
     p.add_argument("--residual-to-last", action="store_true")
+    p.add_argument("--hidden", type=int, default=32, help="TCN channels per layer (spec: 32)") # optinally change channels
     p.add_argument("--threads", type=int, default=0)
     p.add_argument("--results", type=Path, default=Path("results"))
     p.add_argument("--mlflow", action="store_true")
@@ -40,7 +41,7 @@ def main() -> None:
 
     tr = load_split(args.processed, args.subjects, TRAIN)
     va = load_split(args.processed, args.subjects, VAL)
-    cfg = TCNConfig(residual_to_last=args.residual_to_last)
+    cfg = TCNConfig(hidden=args.hidden, residual_to_last=args.residual_to_last)
 
     run_dir = new_run_dir(args.results, "b3_local_only")
     rows, history = [], []
