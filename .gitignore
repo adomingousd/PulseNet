@@ -257,3 +257,4 @@ data/*
 __pycache__/
 mlruns/
 scratch/*
+results/*
