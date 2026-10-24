@@ -1,0 +1,14 @@
+# TEST ONLY — points pi-01 at E01, whose example firmware notifies every 2 s
+[board]
+label = "PN-E01"
+address = "20:6E:F1:12:64:62"
+# 16-bit 0xF00D written in full 128-bit form
+char_uuid = "0000f00d-0000-1000-8000-00805f9b34fb"
+
+[receiver]
+data_dir = "~/pulsenet/data"
+scan_timeout_s = 10
+connect_timeout_s = 20
+backoff_initial_s = 2
+backoff_max_s = 60
+max_packet_bytes = 512

@@ -1,0 +1,14 @@
+# PulseNet receiver config — pi-01
+[board]
+label = "PN-S01"
+address = "F0:1E:BA:62:59:5D"
+# Nordic UART "TX" (board -> Pi). BlueZ labels this "Nordic UART RX".
+char_uuid = "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+
+[receiver]
+data_dir = "~/pulsenet/data"
+scan_timeout_s = 10
+connect_timeout_s = 20
+backoff_initial_s = 2
+backoff_max_s = 60
+max_packet_bytes = 512

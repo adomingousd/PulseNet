@@ -1,0 +1,82 @@
+# systemd service for the PulseNet BLE receiver.
+# install.sh copies this to /etc/systemd/system/.
+# This makes the receiver start at boot, restart if it crashes,
+# and run with as few permissions as possible.
+
+[Unit]
+Description=PulseNet BLE receiver (one sensing board -> this node)
+# Don't start until the Bluetooth service is up
+After=bluetooth.service
+Wants=bluetooth.service
+# If it fails 10 times within 5 minutes, give up instead of looping forever
+StartLimitIntervalSec=300
+StartLimitBurst=10
+
+[Service]
+Type=simple
+
+# Run as a dedicated system account (created by install.sh), not root and not a human login
+User=pulsenet-rx
+Group=pulsenet-rx
+# The bluetooth group is what lets us talk to BlueZ
+SupplementaryGroups=bluetooth
+
+# systemd creates /var/lib/pulsenet, owned by our service account, and tells the
+# script where it is through $STATE_DIRECTORY. This is where packet files go.
+StateDirectory=pulsenet
+StateDirectoryMode=0750
+
+# Unbuffered output so logs show up in the journal right away;
+# don't write .pyc files (the code folder is read-only to us anyway)
+Environment=PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+
+ExecStart=/opt/pulsenet/venv/bin/python /opt/pulsenet/receiver.py --config /etc/pulsenet/node.toml
+
+# Restart automatically if it crashes, after waiting 5 seconds
+Restart=on-failure
+RestartSec=5
+# Exit code 2 means the config is invalid. Restarting won't fix that, so don't try.
+RestartPreventExitStatus=2
+
+# Files we create aren't readable by "other" users
+UMask=0027
+
+# ---- Security hardening ----
+# Goal: even if this process got compromised, it couldn't do anything outside its job.
+
+# Can't gain new privileges (e.g. through setuid programs) and has no special capabilities
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+
+# The whole filesystem is read-only except our StateDirectory.
+# Home directories are hidden completely.
+ProtectSystem=strict
+ProtectHome=yes
+
+# Private /tmp, and no access to raw hardware devices
+# (Bluetooth goes through BlueZ over D-Bus, so we don't need /dev)
+PrivateTmp=yes
+PrivateDevices=yes
+
+# Can't change kernel settings, load kernel modules, read kernel logs,
+# mess with cgroups, change the clock, or change the hostname
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+
+# Only local Unix sockets allowed (that's how D-Bus works). No network sockets at all.
+RestrictAddressFamilies=AF_UNIX
+
+# Block other privilege-escalation and sandbox-escape tricks
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+
+[Install]
+# Start as part of normal boot
+WantedBy=multi-user.target

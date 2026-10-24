@@ -250,9 +250,29 @@ $RECYCLE.BIN/
 # End of https://www.toptal.com/developers/gitignore/api/python,macos,windows,linux
 
 
+# Repo restructuring and Virtual Environment
 data/*
 !data/README.md
 *.dat
 .venv/
 __pycache__/
 mlruns/
+
+# PulseNet: sensing pipeline
+
+# Offline Python packages for the Pis (also covered by "wheels/" above;
+# this catches .whl files saved anywhere else in the repo)
+*.whl
+
+# Raw packet data from the BLE receiver (PN-S01_2026-10-23.jsonl, etc.).
+# On the Pis this lives in /var/lib/pulsenet. It should never be committed,
+# even if someone copies a file into the repo for analysis.
+PN-*_*.jsonl
+
+# Firmware build output (Arduino / PlatformIO / esptool)
+*.bin
+*.elf
+*.hex
+*.uf2
+*.map
+.pio/
