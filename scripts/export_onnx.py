@@ -32,7 +32,10 @@ def main() -> None:
     p.add_argument("--out-dir", type=Path, default=Path("results/onnx"))
     p.add_argument("--processed", type=Path, default=Path("data/processed"))
     p.add_argument("--calibration-samples", type=int, default=512)
-    p.add_argument("--opset", type=int, default=17)
+    p.add_argument("--opset", type=int, default=18,
+                   help="ONNX opset (18 = what the current PyTorch exporter produces natively)")
+    p.add_argument("--legacy", action="store_true",
+                   help="use PyTorch's older TorchScript exporter, e.g. with --opset 17 if a tool needs it")
     args = p.parse_args()
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -47,15 +50,17 @@ def main() -> None:
     path = args.out_dir / "tcn.onnx"
     try:
         torch.onnx.export(model, (dummy,), str(path), input_names=["window"], output_names=["forecast"],
-                          opset_version=args.opset)
+                          opset_version=args.opset, dynamo=not args.legacy)
     except ImportError as e:
         raise SystemExit(f"{e}\nInstall the exporter's dependencies: pip install onnx onnxscript")
     print(f"Wrote {path}  ({count_parameters(model)} parameters, input [1, {cfg.in_channels}, {cfg.window}])")
 
     try:
         import onnx
-        onnx.checker.check_model(onnx.load(str(path)))
-        print("ONNX checker: OK")
+        proto = onnx.load(str(path))
+        onnx.checker.check_model(proto)
+        opset = next((o.version for o in proto.opset_import if o.domain in ("", "ai.onnx")), "?")
+        print(f"ONNX checker: OK  (opset {opset})")
     except ImportError:
         print("onnx not installed; skipped the model check (pip install onnx)")
 
