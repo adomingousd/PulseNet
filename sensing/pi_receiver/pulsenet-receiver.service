@@ -38,7 +38,9 @@ RestartSec=5
 # Exit code 2 means the config is invalid. Restarting won't fix that, so don't try.
 RestartPreventExitStatus=2
 
-# Files we create aren't readable by "other" users
+# Files we create can be read by our group, but not by anyone else.
+# This is left group-readable on purpose so the FL client can read the data files.
+# (systemd-analyze security flags this as a warning; that's expected.)
 UMask=0027
 
 # ---- Security hardening ----
@@ -58,6 +60,10 @@ ProtectHome=yes
 PrivateTmp=yes
 PrivateDevices=yes
 
+# Can't see other programs running on the Pi, or system info in /proc it doesn't need
+ProtectProc=invisible
+ProcSubset=pid
+
 # Can't change kernel settings, load kernel modules, read kernel logs,
 # mess with cgroups, change the clock, or change the hostname
 ProtectKernelTunables=yes
@@ -69,13 +75,29 @@ ProtectHostname=yes
 
 # Only local Unix sockets allowed (that's how D-Bus works). No network sockets at all.
 RestrictAddressFamilies=AF_UNIX
+# No network access of any kind: the service gets its own empty network,
+# and all IP traffic is blocked. D-Bus still works because it's a local file, not a network connection.
+PrivateNetwork=yes
+IPAddressDeny=any
 
 # Block other privilege-escalation and sandbox-escape tricks
 RestrictNamespaces=yes
 RestrictRealtime=yes
 RestrictSUIDSGID=yes
 LockPersonality=yes
+# Block a common code-injection trick (memory that can be both written and run as code)
+MemoryDenyWriteExecute=yes
+# Clean up any shared memory the service leaves behind when it stops
+RemoveIPC=yes
 SystemCallArchitectures=native
+
+# Only allow the system calls a normal service needs.
+# Also block calls for admin-level actions and for changing system resource limits.
+# Blocked calls return a "permission denied" error instead of crashing the program.
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged
+SystemCallFilter=~@resources
+SystemCallErrorNumber=EPERM
 
 [Install]
 # Start as part of normal boot
