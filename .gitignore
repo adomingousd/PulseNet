@@ -276,3 +276,6 @@ PN-*_*.jsonl
 *.uf2
 *.map
 .pio/
+.pio/
+scratch/
+results/
