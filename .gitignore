@@ -256,3 +256,5 @@ data/*
 .venv/
 __pycache__/
 mlruns/
+scratch/
+results/
