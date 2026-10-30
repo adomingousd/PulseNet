@@ -1,0 +1,9 @@
+# Python packages the receiver needs.
+# Versions are pinned so every node runs exactly what we tested.
+# To upgrade: change the version here, test on one Pi, then rebuild the wheels/ bundle.
+
+# Bluetooth Low Energy library (uses BlueZ on Linux)
+bleak==3.0.2
+
+# D-Bus library bleak uses to talk to BlueZ
+dbus-fast==5.2.0
