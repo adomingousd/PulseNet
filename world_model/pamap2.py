@@ -192,6 +192,43 @@ def save_subject(data: dict, out_dir: Path) -> Path:
     return path
 
 
+def build_stream(df: pd.DataFrame, subject: int) -> dict:
+    """Return a subject's clean data as one continuous stream of 50 Hz rows.
+
+    This is the same data build_subject() windows for training, but kept in
+    physical units (not z-scored) and not cut into windows. Segment IDs match
+    build_subject(), so any training window can be found in the stream using
+    its `segment` and `start` values.
+    """
+    # Same cleaning and downsampling steps that build_subject() uses.
+    segs = [_downsample(raw) for _, raw in _segments(df)]
+
+    # Must match the length filter in build_subject(). Segment IDs are list
+    # positions, so keeping different segments here would shift the IDs.
+    segs = [seg for seg in segs if len(seg) >= SAMPLE_LEN]
+    if not segs:
+        raise ValueError(f"subject {subject}: no usable segments")
+
+    return {
+        # All segments joined end to end, shape [T, 19]. Time is NOT continuous
+        # where segments meet, so use `segment` to find those boundaries.
+        "rows": np.concatenate(segs).astype(np.float32),
+        # One ID per row, e.g. [0, 0, 0, 1, 1, 2, ...]: which segment each row is from.
+        "segment": np.repeat(np.arange(len(segs), dtype=np.int32), [len(seg) for seg in segs]),
+        "channels": np.asarray(CHANNELS),   # channel names, in column order of `rows`
+        "subject": np.int32(subject),
+        "fs": np.int32(FS),                 # sample rate of `rows` in Hz
+    }
+
+
+def save_stream(data: dict, out_dir: Path) -> Path:
+    """Write a build_stream() result to <out_dir>/subject_<id>_stream.npz and return the path."""
+    out_dir.mkdir(parents=True, exist_ok=True)  # create the folder on first run
+    path = out_dir / f"subject_{int(data['subject'])}_stream.npz"
+    np.savez_compressed(path, **data)
+    return path
+
+
 def summarize(data: dict) -> dict:
     split = data["split"]
     acts = data["activity"]

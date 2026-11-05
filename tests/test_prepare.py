@@ -71,6 +71,58 @@ def test_save_roundtrip(tmp_path):
     assert z["x"].shape == d["x"].shape and int(z["subject"]) == 101
 
 
+def test_stream_matches_training_window(tmp_path):
+    path = make_subject_file(tmp_path / "Protocol" / "subject101.dat", 101)
+    df = pamap2.read_subject(path)
+    d = pamap2.build_subject(df, 101)
+    stream = pamap2.build_stream(df, 101)
+
+    # Last window: its segment and start are both non-zero, so a wrong segment
+    # ID or row offset in the stream would make this test fail.
+    i = len(d["split"]) - 1
+    start = d["start"][i]
+    assert d["segment"][i] > 0 and start > 0
+
+    # Take the same 110 rows from the stream, z-score them with the training
+    # file's stats, and flip [time, channels] to the windows' [channels, time].
+    rows = stream["rows"][stream["segment"] == d["segment"][i]]
+    z = ((rows[start : start + pamap2.SAMPLE_LEN] - d["mean"]) / d["std"]).T
+
+    # atol allows for float32 rounding, which the default np.allclose tolerance
+    # can reject for z-scores near zero. An off-by-one row is far larger than this.
+    assert np.allclose(z[:, :pamap2.INPUT_LEN], d["x"][i], atol=1e-4)
+    assert np.allclose(z[:, pamap2.INPUT_LEN:], d["y"][i], atol=1e-4)
+
+
+def test_stream_and_windows_keep_same_segments(tmp_path):
+    # build_subject() and build_stream() each have their own copy of the rule
+    # that drops segments under 110 steps. This test fails if the two copies
+    # stop matching, because the segment IDs would no longer line up.
+    # At 100 Hz raw: activity 4 lasts 218 samples = 109 steps at 50 Hz (dropped),
+    # activity 5 lasts 220 samples = 110 steps (kept). Activity 6 comes last, so
+    # its ID shifts if the dropped segment is counted by only one of the builders.
+    bouts = [(1, 30), (0, 1), (4, 2.18), (0, 1), (5, 2.2), (0, 1), (6, 30)]
+    path = make_subject_file(tmp_path / "Protocol" / "subject101.dat", 101,
+                             bouts=bouts, long_dropout=False)
+    df = pamap2.read_subject(path)
+    d = pamap2.build_subject(df, 101)
+    stream = pamap2.build_stream(df, 101)
+
+    # Make sure the fake data really lands on each side of the 110-step limit.
+    assert 4 not in d["activity"] and 5 in d["activity"]
+
+    # Both builders must end up with the same segment IDs.
+    assert np.array_equal(np.unique(stream["segment"]), np.unique(d["segment"]))
+
+    # Same IDs could still point at different data, so check every window too.
+    for i in range(len(d["split"])):
+        rows = stream["rows"][stream["segment"] == d["segment"][i]]
+        start = d["start"][i]
+        z = ((rows[start : start + pamap2.SAMPLE_LEN] - d["mean"]) / d["std"]).T
+        assert np.allclose(z[:, :pamap2.INPUT_LEN], d["x"][i], atol=1e-4)
+        assert np.allclose(z[:, pamap2.INPUT_LEN:], d["y"][i], atol=1e-4)
+
+
 def test_baseline_metrics():
     x = np.ones((4, 19, 100), dtype=np.float32)
     y = np.ones((4, 19, 10), dtype=np.float32)
