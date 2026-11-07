@@ -278,3 +278,6 @@ PN-*_*.jsonl
 .pio/
 scratch/
 results/
+
+# Wheels for pipeline
+deploy/wheels-*/
