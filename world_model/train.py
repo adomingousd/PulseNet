@@ -40,16 +40,17 @@ def train(model: nn.Module, loader, epochs: int = 1, lr: float = 1e-3,
     t0 = time.perf_counter()
     total, n = 0.0, 0
     for _ in range(epochs):
-        for xb, yb in loader:
-            opt.zero_grad()
-            loss = mse(model(xb), yb)
-            if proximal_mu > 0:
-                prox = sum(((p - g) ** 2).sum() for p, g in zip(model.parameters(), global_params))
-                loss = loss + 0.5 * proximal_mu * prox
-            loss.backward()
-            opt.step()
-            total += loss.item() * len(xb)
-            n += len(xb)
+            for xb, yb in loader:
+                opt.zero_grad()
+                mse_loss = mse(model(xb), yb)
+                loss = mse_loss
+                if proximal_mu > 0:
+                    prox = sum(((p - g) ** 2).sum() for p, g in zip(model.parameters(), global_params))
+                    loss = loss + 0.5 * proximal_mu * prox
+                loss.backward()
+                opt.step()
+                total += mse_loss.item() * len(xb)
+                n += len(xb)
     return {
         "train_loss": total / max(n, 1),
         "num_examples": len(loader.dataset),
