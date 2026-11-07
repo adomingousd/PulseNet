@@ -11,6 +11,7 @@ Last updated: 2026-10-23 by Aiden
 | Python | 3.13 |
 | Flower (flwr) | 1.42.0 |
 | PyTorch | 2.14.1 |
+| Numpy | 2.5.4 |
 
 ## Machines
 
