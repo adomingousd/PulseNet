@@ -1,70 +1,72 @@
-"""PulseNet ClientApp: runs on each Pi (or as a simulated node on the laptop)."""
+"""PulseNet ClientApp: runs on each Pi (or as a simulated node on the laptop).
+
+Each round the Jetson sends the current global model. This node either trains
+it on its own subject's data (train) or scores it on its validation windows
+(evaluate). Only weights and metrics are sent back; raw data stays here.
+"""
 
 from __future__ import annotations
 
-import torch
 from flwr.app import ArrayRecord, Context, Message, MetricRecord, RecordDict
 from flwr.clientapp import ClientApp
 
-from fl_framework.pulsenet_fl import task
+from world_model import data, metrics
+from world_model import train as training
+
+from fl_framework.pulsenet_fl.task import build_model, data_location
 
 app = ClientApp()
 
 
-def _round(msg: Message) -> int:
-    # The strategy puts the round number in the config it sends with each message.
-    return int(msg.content["config"].get("server-round", 0))
-
-
-def _load_global_model(msg: Message, context: Context) -> torch.nn.Module:
-    model = task.build_model(context.run_config)
+def _global_model(msg: Message, context: Context):
+    model = build_model(context.run_config)
     model.load_state_dict(msg.content["arrays"].to_torch_state_dict())
     return model
+
+
+def _load(context: Context, split: int):
+    """(x, y, activity) for this node's subject and the given split."""
+    data_dir, subject = data_location(context)
+    return data.split_arrays(data.load_subject(data_dir, subject), split)
 
 
 @app.train()
 def train(msg: Message, context: Context) -> Message:
     cfg = context.run_config
-    seed = int(cfg["seed"]) * 1000 + _round(msg)
-    torch.manual_seed(seed)
+    seed = int(cfg["seed"]) * 1000 + int(msg.content["config"].get("server-round", 0))
+    training.set_seed(seed)
 
-    model = _load_global_model(msg, context)
-    train_loader, _, n_train, _ = task.load_data(
-        task.resolve_data_path(context), int(cfg["batch-size"]), seed
-    )
-    train_loss, train_time = task.train(
+    model = _global_model(msg, context)
+    x, y, _ = _load(context, data.TRAIN)
+    loader = data.make_loader(x, y, int(cfg["batch-size"]), shuffle=True, seed=seed)
+    result = training.train(
         model,
-        train_loader,
+        loader,
         epochs=int(cfg["local-epochs"]),
         lr=float(cfg["learning-rate"]),
-        mu=float(cfg["proximal-mu"]),
+        proximal_mu=float(cfg["proximal-mu"]),
     )
 
-    content = RecordDict({
+    reply = RecordDict({
         "arrays": ArrayRecord(model.state_dict()),
         "metrics": MetricRecord({
-            "train_loss": train_loss,
-            "train_time_s": train_time,
-            "num-examples": n_train,
+            "train_loss": result["train_loss"],
+            "train_time_s": result["train_time_s"],
+            "num-examples": result["num_examples"],
         }),
     })
-    return Message(content=content, reply_to=msg)
+    return Message(content=reply, reply_to=msg)
 
 
 @app.evaluate()
 def evaluate(msg: Message, context: Context) -> Message:
-    cfg = context.run_config
-    model = _load_global_model(msg, context)
-    _, val_loader, _, n_val = task.load_data(
-        task.resolve_data_path(context), int(cfg["batch-size"]), int(cfg["seed"])
-    )
-    val_mse, persistence_mse = task.evaluate(model, val_loader)
+    model = _global_model(msg, context)
+    x, y, _ = _load(context, data.VAL)
 
-    content = RecordDict({
-        "metrics": MetricRecord({
-            "eval_mse": val_mse,
-            "eval_persistence_mse": persistence_mse,
-            "num-examples": n_val,
-        }),
-    })
-    return Message(content=content, reply_to=msg)
+    report = training.evaluate(model, x, y)
+    persistence = metrics.forecast_report(metrics.persistence_forecast(x, y.shape[2]), y)
+
+    values = {k: v for k, v in report.items() if k != "num_examples"}
+    values["persistence_mse"] = persistence["mse"]
+    values["num-examples"] = report["num_examples"]
+    return Message(content=RecordDict({"metrics": MetricRecord(values)}), reply_to=msg)
