@@ -63,7 +63,7 @@ def predict(model: nn.Module, x: np.ndarray, batch_size: int = 512) -> np.ndarra
     model.eval()
     outs = [model(torch.from_numpy(np.ascontiguousarray(x[i:i + batch_size]))).numpy()
             for i in range(0, len(x), batch_size)]
-    return np.concatenate(outs) if outs else np.zeros((0, *x.shape[1:2], 10), np.float32)
+    return np.concatenate(outs) if outs else np.zeros((0, *x.shape[1:2], model.cfg.horizon), np.float32)
 
 
 def evaluate(model: nn.Module, x: np.ndarray, y: np.ndarray) -> dict:
