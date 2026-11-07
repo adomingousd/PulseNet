@@ -1,3 +1,3 @@
 flwr==1.42.0
-torch==2.14.1
+torch==2.14.1+cpu
 numpy==2.5.4
