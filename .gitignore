@@ -281,3 +281,6 @@ results/
 
 # Wheels for pipeline
 deploy/wheels-*/
+
+# Handoff bundles
+pulsenet-fl-bundle.zip
