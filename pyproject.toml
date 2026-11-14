@@ -1,0 +1,60 @@
+# PulseNet Flower app. Lives at the REPO ROOT so the Flower App Bundle (FAB)
+# can include world_model/ alongside the Flower code (FAB paths can't reach
+# outside the folder that holds this file).
+#
+# Laptop (simulation):  pip install -e ".[simulation]"
+# Pis / Jetson:         plain flwr + torch + numpy from the offline bundle (no Ray)
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pulsenet-fl"
+version = "0.1.0"
+description = "PulseNet: federated TCN training with Flower"
+requires-python = ">=3.12" 
+dependencies = [
+    "flwr==1.42.0",
+    "torch==2.14.1",
+    "numpy==2.5.4",
+]
+
+[project.optional-dependencies]
+simulation = ["flwr[simulation]==1.42.0"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["fl_framework", "world_model"]
+
+[tool.flwr.app]
+publisher = "pulsenet"
+fab-include = ["fl_framework/**/*.py", "world_model/**/*.py"]
+
+[tool.flwr.app.components]
+serverapp = "fl_framework.pulsenet_fl.server_app:app"
+clientapp = "fl_framework.pulsenet_fl.client_app:app"
+
+[tool.flwr.app.config]
+# Override any of these per run:  flwr run . <conn> --run-config "key=value key2=value2"
+num-server-rounds = 3
+seed = 0
+
+# Model / optimizer (W2 spec)
+hidden-channels = 32
+learning-rate = 0.001
+batch-size = 64
+
+# Federation (open team decisions; these defaults exist only so the app runs)
+local-epochs = 1
+proximal-mu = 0.0
+
+# Round handling
+min-nodes = 8
+round-timeout-s = 600
+
+# Simulation only (in deployment each Pi gets data-path via --node-config)
+sim-data-dir = ""           # absolute path to data/processed; pass with --run-config
+sim-subjects = "101,102,103,104,105,106,107,108"
+
+# Where the ServerApp saves the final global model ("" = don't save)
+save-final-model = ""

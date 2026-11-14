@@ -40,16 +40,17 @@ def train(model: nn.Module, loader, epochs: int = 1, lr: float = 1e-3,
     t0 = time.perf_counter()
     total, n = 0.0, 0
     for _ in range(epochs):
-        for xb, yb in loader:
-            opt.zero_grad()
-            loss = mse(model(xb), yb)
-            if proximal_mu > 0:
-                prox = sum(((p - g) ** 2).sum() for p, g in zip(model.parameters(), global_params))
-                loss = loss + 0.5 * proximal_mu * prox
-            loss.backward()
-            opt.step()
-            total += loss.item() * len(xb)
-            n += len(xb)
+            for xb, yb in loader:
+                opt.zero_grad()
+                mse_loss = mse(model(xb), yb)
+                loss = mse_loss
+                if proximal_mu > 0:
+                    prox = sum(((p - g) ** 2).sum() for p, g in zip(model.parameters(), global_params))
+                    loss = loss + 0.5 * proximal_mu * prox
+                loss.backward()
+                opt.step()
+                total += mse_loss.item() * len(xb)
+                n += len(xb)
     return {
         "train_loss": total / max(n, 1),
         "num_examples": len(loader.dataset),
@@ -62,7 +63,7 @@ def predict(model: nn.Module, x: np.ndarray, batch_size: int = 512) -> np.ndarra
     model.eval()
     outs = [model(torch.from_numpy(np.ascontiguousarray(x[i:i + batch_size]))).numpy()
             for i in range(0, len(x), batch_size)]
-    return np.concatenate(outs) if outs else np.zeros((0, *x.shape[1:2], 10), np.float32)
+    return np.concatenate(outs) if outs else np.zeros((0, *x.shape[1:2], model.cfg.horizon), np.float32)
 
 
 def evaluate(model: nn.Module, x: np.ndarray, y: np.ndarray) -> dict:

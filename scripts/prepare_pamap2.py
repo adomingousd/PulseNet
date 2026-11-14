@@ -5,7 +5,7 @@ Usage (from the repo root, venv active):
     python scripts/prepare_pamap2.py --raw-dir data/PAMAP2_Dataset/Protocol --subjects 101 102
     python scripts/prepare_pamap2.py --save-stream   # also write data/stream/subject_<id>_stream.npz
 
-Each output file holds (see docs/data-contract.md):
+Each output file holds (see docs/data_contract.md):
     x         float32 [N, 19, 100]  input windows, z-scored with this subject's train stats
     y         float32 [N, 19, 10]   the next 10 steps (the forecast target)
     activity  int16   [N]           PAMAP2 activity ID of the window
