@@ -1,19 +1,119 @@
 """PulseNet interface prototype. Run from repo root: streamlit run dashboard/app.py."""
 from datetime import datetime, timezone
+import ast
 import io
+import re
+from pathlib import Path
 import json
 import math
 import random
+from concurrent.futures import ThreadPoolExecutor
+from subprocess import TimeoutExpired
 
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+
+from experiment_runner import run_experiment
+from pulsenet_live import read_memory
 
 st.set_page_config(page_title="PulseNet | Cluster console", page_icon="📡", layout="wide")
 CHANNELS = [f"{site}_{sensor}_{axis}" for site in ("hand", "chest", "ankle")
             for sensor in ("acc", "gyro") for axis in "xyz"] + ["heart_rate"]
 BOARDS = ["PN-S01", "PN-E01", "PN-S02", "PN-E02", "PN-S03", "PN-E03", "PN-S04", "PN-E04"]
 
+
+ROOT = Path(__file__).resolve().parent.parent
+RESULTS_DIR = ROOT / "results"
+
+
+def poll_pi(index):
+    endpoint = f"10.20.0.{10 + index}:9100"
+    try:
+        memory = f"{read_memory(endpoint):.1f}%"
+        status = "Telemetry reachable"
+    except (OSError, ValueError, KeyError):
+        memory = "—"
+        status = "Telemetry unavailable"
+    return {"Pi": f"pi-{index:02}", "Endpoint": endpoint,
+            "Exporter status": status, "RAM used": memory}
+
+
+@st.cache_data(ttl=4)
+def pi_readings():
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        return list(pool.map(poll_pi, range(1, 9)))
+
+
+@st.fragment(run_every=5)
+def live_pi_view():
+    st.dataframe(pi_readings(), hide_index=True, width="stretch")
+    st.caption(f"Polled at {datetime.now(timezone.utc):%H:%M:%S} UTC")
+
+
+
+
+def format_run_label(benchmark, run_dir):
+    benchmark_name = {
+        "b2_centralized": "B2 Centralized",
+        "b3_local_only": "B3 Local-only",
+    }[benchmark]
+
+    try:
+        config = json.loads(
+            (run_dir / "config.json").read_text(encoding="utf-8")
+        )
+    except (OSError, ValueError):
+        config = {}
+
+    channels = config.get("input_channels") if isinstance(config, dict) else None
+    if not isinstance(channels, list) or not channels:
+        try:
+            dashboard_config = json.loads(
+                (run_dir / "dashboard-inputs.json").read_text(encoding="utf-8")
+            )
+        except (OSError, ValueError):
+            dashboard_config = {}
+        if isinstance(dashboard_config, dict):
+            channels = dashboard_config.get("input_channels")
+
+    if not isinstance(channels, list) or not channels:
+        sensor_label = "Inputs unrecorded"
+    elif set(channels) == set(CHANNELS):
+        sensor_label = "All 19 inputs"
+    elif set(channels) == {name for name in CHANNELS if "_gyro_" not in name}:
+        sensor_label = "Gyroscope inputs excluded (10 inputs)"
+    else:
+        sensor_label = f"Custom selection ({len(channels)} inputs)"
+
+    return f"{benchmark_name} · {sensor_label} · {run_dir.name}"
+
+def load_experiment_results(results_dir):
+    """Read saved benchmarks and the local Flower simulation log."""
+    runs = {}
+    rounds = []
+    for benchmark in ("b2_centralized", "b3_local_only"):
+        for path in sorted((results_dir / benchmark).glob("*/results.csv")):
+            frame = pd.read_csv(path, dtype={"eval": str})
+            if {"seed", "eval", "mse"}.issubset(frame.columns):
+                runs[format_run_label(benchmark, path.parent)] = frame
+    log = results_dir / "flower-simulation.log"
+    if log.is_file():
+        round_number = None
+        stage = None
+        for line in log.read_text(encoding="utf-8").splitlines():
+            match = re.search(r"\[ROUND (\d+)/\d+\]", line)
+            if match:
+                round_number = int(match[1])
+                stage = None
+            if "aggregate_train:" in line:
+                stage = "train"
+            if "aggregate_evaluate:" in line:
+                stage = "evaluate"
+            if round_number is not None and stage == "evaluate" and "Aggregated MetricRecord: " in line:
+                metrics = ast.literal_eval(line.split("Aggregated MetricRecord: ", 1)[1])
+                rounds.append({**metrics, "round": round_number})
+    return runs, pd.DataFrame(rounds)
 
 def demo_nodes():
     states = ["Training", "Training", "Evaluating", "Idle", "Submitted", "Training", "Idle", "Unknown"]
@@ -54,7 +154,7 @@ def active_alerts(nodes, heartbeat, memory, duration):
 
 st.title("PulseNet")
 st.caption("Cluster monitoring · Federated learning · Dataset experiments")
-st.warning("DEMO MODE — All status reports, metric values and alerts below are fabricated examples. No hardware is connected. No training or evaluation runs from this interface.")
+st.warning("Node reports and alerts use demo data. Experiment results come from the local results folder. Live Pi telemetry polls the lab network. Centralized experiments run on this dashboard host.")
 with st.sidebar:
     st.header("Workspace")
     st.write("Coordinator: pulsenet-jetson")
@@ -82,8 +182,13 @@ cols = st.columns(4)
 for col, title, value in zip(cols, ["Online", "Selected for FL", "Example round", "Active alerts"],
                             [f"{(nodes.connection == 'Online').sum()}/8", int(nodes.selected.sum()), 12, len(alerts)]):
     col.metric(title, value)
-overview, explorer, performance, datasets, alert_tab, controls = st.tabs([
-    "Overview", "Node explorer", "Prediction performance", "CSV experiments", "Alert rules", "Node controls"])
+overview, explorer, performance, datasets, alert_tab, controls, telemetry = st.tabs([
+    "Overview", "Node explorer", "Prediction performance", "CSV experiments", "Alert rules", "Node controls", "Live Pi telemetry"])
+
+with telemetry:
+    live_enabled = st.checkbox("Poll Pi exporters")
+    if live_enabled:
+        live_pi_view()
 
 with overview:
     st.subheader("Eight-node cluster")
@@ -124,6 +229,93 @@ with performance:
         st.plotly_chart(px.line(values, x="round", y="validation_mse", color="node", markers=True,
                                labels={"validation_mse": "Validation MSE", "round": "FL round"}), width="stretch")
     st.download_button("Download example metrics", history().to_csv(index=False), "demo_metrics.csv", "text/csv")
+
+    st.subheader("Sensor inputs for a new experiment")
+    st.caption("Train a centralized TCN on this host. Sensor selection changes the inputs. The model forecasts all 19 channels.")
+    groups = st.multiselect(
+        "Include sensor groups",
+        ["Accelerometer", "Gyroscope", "Heart rate"],
+        default=["Accelerometer", "Gyroscope", "Heart rate"],
+    )
+    channel_groups = {
+        "acc": "Accelerometer", "gyro": "Gyroscope", "rate": "Heart rate",
+    }
+    selected_channels = [
+        channel for channel in CHANNELS
+        if channel_groups[channel.split("_")[1]] in groups
+    ]
+    if selected_channels:
+        st.write(", ".join(selected_channels))
+    else:
+        st.warning("Select at least one sensor group.")
+
+    available_subjects = sorted(
+        path.stem.removeprefix("subject_")
+        for path in (ROOT / "data/processed").glob("subject_*.npz")
+        if path.stem.removeprefix("subject_").isdigit()
+    )
+    subjects = st.multiselect("PAMAP2 subjects", available_subjects,
+                              default=available_subjects[:2])
+    epochs = st.number_input("Training epochs", min_value=1, max_value=100, value=2)
+    if not available_subjects:
+        st.info("Place processed PAMAP2 subject files in data/processed/ to enable training.")
+    if st.button("Run centralized experiment", disabled=not selected_channels or not subjects):
+        with st.spinner("Training and evaluating the TCN…"):
+            try:
+                destination = run_experiment(ROOT, RESULTS_DIR, selected_channels, subjects, int(epochs))
+            except (OSError, RuntimeError, TimeoutExpired) as error:
+                st.error(f"Experiment failed: {error}")
+            else:
+                st.success(f"Completed {destination.name}. Results appear below.")
+
+    st.subheader("Experiment results")
+    st.caption(
+        "Reads saved runs from the repository’s results/ folder. " 
+        "To see how removing gyroscope inputs affects forecast accuracy, compare "
+        "runs with the same validation data, forecast targets, and training "
+        "settings such as the number of epochs and the random seed."
+    )
+    st.button("Reload saved results")
+    if RESULTS_DIR.is_dir():
+        try:
+            runs, rounds = load_experiment_results(RESULTS_DIR)
+            profiles = []
+            summaries = []
+            for label, frame in runs.items():
+                for row in frame.loc[frame["eval"] == "all"].to_dict("records"):
+                    name = f"{label} · seed {row['seed']}"
+                    summaries.append({"Run": name, "Validation MSE": row["mse"]})
+                    profiles.extend(
+                        {"Run": name, "Forecast step": step, "MSE": row[f"mse_h{step}"]}
+                        for step in range(1, 11) if f"mse_h{step}" in row
+                    )
+            if not rounds.empty:
+                rounds = rounds.sort_values("round")
+                st.plotly_chart(px.line(rounds, x="round", y="mse", markers=True,
+                                       labels={"round": "FL round", "mse": "Validation MSE"}),
+                                width="stretch")
+                final = rounds.iloc[-1]
+                name = f"Flower · round {int(final['round'])}"
+                summaries.append({"Run": name, "Validation MSE": final["mse"]})
+                profiles.extend(
+                    {"Run": name, "Forecast step": step, "MSE": final[f"mse_h{step}"]}
+                    for step in range(1, 11) if f"mse_h{step}" in final
+                )
+                with st.expander("Flower evaluation metrics by round"):
+                    st.dataframe(rounds, hide_index=True)
+            if summaries:
+                st.dataframe(pd.DataFrame(summaries), hide_index=True)
+            if profiles:
+                chart_data = pd.DataFrame(profiles)
+                st.plotly_chart(px.line(chart_data, x="Forecast step", y="MSE",
+                                       color="Run", markers=True), width="stretch")
+            if not summaries:
+                st.warning("No aggregate benchmark rows or Flower evaluation rounds were found.")
+        except (OSError, KeyError, TypeError, ValueError, SyntaxError) as exc:
+            st.error(f"Could not read experiment results: {exc}")
+
+    else:
+        st.info("Run a benchmark or Flower simulation to populate the repository’s results/ folder.")
 
 with datasets:
     st.subheader("Inspect a CSV dataset")
