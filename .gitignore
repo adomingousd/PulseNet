@@ -257,6 +257,7 @@ data/*
 .venv/
 __pycache__/
 mlruns/
+.venv-dashboard/
 
 # PulseNet: sensing pipeline
 

@@ -33,6 +33,12 @@ class TCNConfig:
     # (output = head + last input step) instead of absolute values.
     residual_to_last: bool = False
 
+    out_channels: int | None = None
+
+    @property
+    def forecast_channels(self) -> int:
+        return self.in_channels if self.out_channels is None else self.out_channels
+
     def to_dict(self) -> dict:
         d = asdict(self)
         d["dilations"] = list(self.dilations)
@@ -84,14 +90,14 @@ class TCN(nn.Module):
             blocks.append(ResidualBlock(c_in, c.hidden, c.kernel_size, d))
             c_in = c.hidden
         self.backbone = nn.Sequential(*blocks)
-        self.head = nn.Linear(c.hidden, c.in_channels * c.horizon)
+        self.head = nn.Linear(c.hidden, c.forecast_channels * c.horizon)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """x: [B, C, T] -> [B, C, horizon]."""
         b = x.shape[0]
         h = self.backbone(x.unsqueeze(2))       # [B, hidden, 1, T]
         last = h[:, :, 0, -1]                   # features at the last time step
-        out = self.head(last).reshape(b, self.cfg.in_channels, self.cfg.horizon)
+        out = self.head(last).reshape(b, self.cfg.forecast_channels, self.cfg.horizon)
         if self.cfg.residual_to_last:
             out = out + x[:, :, -1:]
         return out
@@ -116,5 +122,5 @@ def expected_parameters(cfg: TCNConfig) -> int:
         if c_in != h:
             total += c_in * h + h          # 1x1 skip
         c_in = h
-    total += h * c * cfg.horizon + c * cfg.horizon  # head
+    total += (h + 1) * cfg.forecast_channels * cfg.horizon  # head
     return total
